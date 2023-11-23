@@ -1,4 +1,4 @@
-
+#Requires -modules ActiveDirectory
 <#
 .SYNOPSIS
 Creates Groups for use with granular server access from Active Directory
@@ -25,27 +25,27 @@ param (
 )
 
 Begin {
+    Import-Module ActiveDirectory
     #Set parameters for domain to query
     Switch ($Domain) {
         "CORP" {
-            $Searchbase = "OU=SITES,OU=PAYROC,DC=CORP,DC=PAYROC,DC=COM"
+            $Searchbase = "OU=Tier1 Servers,DC=CORP,DC=PAYROC,DC=COM"
             $DCServer = "mkmcrpdmc02.CORP.PAYROC.COM"
         }
         "PROD" {
-            $Searchbase = "OU=SITES,OU=PAYROC,DC=PROD,DC=PAYROC,DC=COM"
+            $Searchbase = "OU=Tier1 Servers,DC=PROD,DC=PAYROC,DC=COM"
             $DCServer = "elkprddmc01.prod.payroc.com"
         }
                
     }
-    #Import ActiveDirectory Module
-    Import-Module Activedirectory
+    
     If ($Domain -eq "All") {
         #If All, gather computer names from both CORP & PROD
-        $Servers = Get-ADComputer -SearchBase "OU=SITES,OU=PAYROC,DC=CORP,DC=PAYROC,DC=COM"`
+        $Servers = Get-ADComputer -SearchBase "OU=Tier1 Servers,DC=CORP,DC=PAYROC,DC=COM"`
          -Server "mkmcrpdmc02.CORP.PAYROC.COM" -Filter { Enabled -eq "True" }`
           -Properties OperatingSystem |
             Where-Object {$_.OperatingSystem -Like "Windows Server*"}
-        $Servers += Get-ADComputer -SearchBase "OU=SITES,OU=PAYROC,DC=PROD,DC=PAYROC,DC=COM"`
+        $Servers += Get-ADComputer -SearchBase "OU=Tier1 Servers,DC=PROD,DC=PAYROC,DC=COM"`
          -Server "elkprddmc01.prod.payroc.com" -Filter { Enabled -eq "True" }`
           -Properties OperatingSystem |
             Where-Object {$_.OperatingSystem -Like "Windows Server*"}
@@ -57,6 +57,8 @@ Begin {
             Where-Object {$_.OperatingSystem -Like "Windows Server*"}
     }
     $NewGroups = "The following new groups have been created:`n"  
+    
+    
 }
 
 Process {
@@ -76,44 +78,58 @@ Process {
         Try {
             $Group = Get-ADGroup -Identity $Admin
             If ($Group) {
-                Write-Host -ForegroundColor Yellow "$Admin already exists!"
+                Write-Output "$Admin already exists!"
+                
+                
             }
         }
         #If no group exists, create it
         Catch [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException] {
             New-ADGroup -Name $Admin -GroupCategory Security -GroupScope Universal `
-             -Path "OU=Local Administrators,OU=Groups,OU=Global,OU=Payroc,DC=CORP,DC=PAYROC,DC=COM" `
+             -Path "OU=Local Administrators,OU=Groups,OU=Tier1,OU=Admin,DC=CORP,DC=PAYROC,DC=COM" `
              -Description "Provides Local Administrator permissions for $($Server.DNSHostName)"
             $NewGroups += "$Admin`n"
+            
         }
         #Add any default members
-        Add-ADGroupMember -Identity $Admin -Members "sys_eng-mgt" 
+        Add-ADGroupMember -Identity $Admin -Members "sye-adm" 
 
         #Check if RDP Users group exists
         Try {
             $Group = Get-ADGroup -Identity $RDP
             If ($Group) {
-                Write-Host -ForegroundColor Yellow "$RDP already exists!"
+                Write-Output "$RDP already exists!"
             }
         }
         #if no group exists, create it
         Catch [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException] {
             New-ADGroup -Name $RDP -GroupCategory Security -GroupScope Universal `
-            -Path "OU=Remote Desktop Users,OU=Groups,OU=Global,OU=Payroc,DC=CORP,DC=PAYROC,DC=COM" `
+            -Path "OU=Remote Desktop Users,OU=Groups,OU=Tier1,OU=Admin,DC=CORP,DC=PAYROC,DC=COM" `
             -Description "Provides RDP permissions for $($Server.DNSHostName)"
             $NewGroups += "$RDP`n"
+            
         }
         #Add-ADGroupMember -Identity $RDP -Members "Test-User" -Verbose
     }
 }
 End{
     #Log to file
-    $LogFile = "$LogPath\New_ADGroups_$(Get-Date -Format yyyy-MM-dd).txt"
+    $LogFile = "$LogPath\New_ADGroups_$(Get-Date -Format yyyy-MM-dd).log"
+    $TimeStamp = Get-Date
     If (Test-Path $LogPath) {
-        $NewGroups | Out-File $LogFile
+        $TimeStamp | Out-File $LogFile -Append
+        $NewGroups | Out-File $LogFile -Append
     } Else {
         New-item -Path $Logpath -Type Directory
-        $NewGroups | Out-File $LogFile
-    }   
+        $TimeStamp | Out-File $LogFile -Append
+        $NewGroups | Out-File $LogFile -Append
+    }
+    #Cleanup older logs
+    Get-ChildItem -Path $LogPath -Filter "New_ADGroups_*.log" |
+        Where-Object {$_.CreationTime -lt $(Get-Date).AddMonths(-1)} |
+        Remove-Item
 }
+
+
+
 
